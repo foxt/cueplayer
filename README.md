@@ -7,5 +7,8 @@ Tested on macOS with a K70 keyboard.
 git clone https://github.com/theLMGN/cueplayer
 cd cueplayer
 npm i
+
+cp ~/myvideo.mp4 ./video.mp4
+
 ./node_modules/.bin/electron .
 ```
