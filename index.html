@@ -1,0 +1,95 @@
+<body>
+    <h2>Source Video</h2>
+    <button onclick="screenRecord()">Screen Record</button><br>
+    <video src="video.mp4" controls height="280"></video>
+    <h2>Keyboard Preview</h2>
+    FPS: <span id="fps"></span><br>
+    <script>
+
+// initialise the SDK
+const sdk = require('cue-sdk');
+const details = sdk.CorsairPerformProtocolHandshake();
+console.log(details)
+const errCode = sdk.CorsairGetLastError();
+if (errCode !== 0) {
+    console.error("Error code returned", sdk.CorsairErrorString[sdk.CorsairGetLastError()])
+    process.exit()
+    
+}
+
+// set the input to a screen recording
+async function screenRecord() { 
+    // request access to the screen
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { mediaSource: "screen" }
+    });
+    // set the video to the screen recording
+    document.querySelector("video").srcObject = stream
+}
+
+// update lights on a device per device basis
+function doDevice(i) {
+    // get light positions on device
+    const positions = sdk.CorsairGetLedPositionsByDeviceIndex(i);
+    console.log(positions)
+    // create canvas with correct sizing
+    var canv = document.createElement("canvas")
+    canv.width = Math.max(...positions.map((p) => p.left + p.width))
+    canv.height = Math.max(...positions.map((p) => p.top + p.height))
+    document.body.append(canv)
+    var ctx = canv.getContext("2d")
+    
+    var target = document.querySelector("video")
+    var lfr = performance.now()
+    var afps = []
+    function raf() {
+        // draw image to canvas
+        ctx.clearRect(0,0,canv.width,canv.height)
+        ctx.drawImage(target,0,32,300,canv.height-32)
+
+        var colors = []
+        // for each led average the color of the area that it is placed ad
+        for (var c of positions) {
+            // scale image covered by the LED down to 1px x 1px
+            ctx.putImageData(ctx.getImageData(c.left,c.top,c.width,c.height),c.left,c.top,0,0,1,1)
+            // get the color of the scaled down image
+            var avg = ctx.getImageData(c.left,c.top,1,1)
+            var color = [...avg.data]
+            // draw the color onto the preview
+            ctx.fillStyle = `rgb(${color[0]},${color[1]},${color[2]})`
+            ctx.fillRect(c.left,c.top,c.width,c.height)
+            ctx.strokeRect(c.left,c.top,c.width,c.height)
+            // push the color of the led to the buffer to be pushed to the keyboard
+            colors.push({ledId: c.ledId,r: color[0],g:color[1],b:color[1]})
+        }
+        // flush the buffer to the keyboard
+        sdk.CorsairSetLedsColorsBufferByDeviceIndex(i, colors);
+        sdk.CorsairSetLedsColorsFlushBuffer();
+
+        // framerate calculation
+        var diff = performance.now() - lfr
+        lfr = performance.now()
+        afps.push(1000/diff)
+        if (afps.length > 100) afps.shift()
+        var t = 0
+        for (var fps of afps) t+=fps
+
+        document.querySelector("#fps").innerHTML = Math.round(t/afps.length) 
+    }
+    // run at 30 fps
+    setInterval(raf,33)
+}
+// get a list of devices
+const n = sdk.CorsairGetDeviceCount();
+
+// select the devices to be updated
+for (let i = 0; i < n; ++i) {
+    const info = sdk.CorsairGetDeviceInfo(i);
+    if (info.type != 2) continue;
+    console.log(info)
+    if (info.capsMask & sdk.CorsairDeviceCaps.CDC_Lighting) {
+        doDevice(i)
+    }
+}
+    </script>
+</body>
